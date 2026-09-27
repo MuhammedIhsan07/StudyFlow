@@ -2,6 +2,7 @@ param(
     [switch]$CompileOnly,
     [switch]$Desktop,
     [switch]$Web,
+    [switch]$Lan,
     [ValidateRange(1, 65535)][int]$Port = 8080,
     [string]$BindAddress = '127.0.0.1',
     [string]$PublicUrl = '',
@@ -14,6 +15,27 @@ $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $toolsDirectory = Join-Path $projectRoot '.tools'
 $portableJdkDirectory = Join-Path $toolsDirectory 'jdk'
 $outputDirectory = Join-Path $projectRoot 'out'
+
+function Find-StudyFlowLanAddress {
+    foreach ($network in [Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
+        if ($network.OperationalStatus -ne [Net.NetworkInformation.OperationalStatus]::Up) { continue }
+        $properties = $network.GetIPProperties()
+        $hasIpv4Gateway = $properties.GatewayAddresses | Where-Object {
+            $_.Address.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork -and
+            -not $_.Address.Equals([Net.IPAddress]::Any)
+        }
+        if (-not $hasIpv4Gateway) { continue }
+        foreach ($address in $properties.UnicastAddresses) {
+            $ip = $address.Address
+            if ($ip.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork -and
+                -not [Net.IPAddress]::IsLoopback($ip) -and
+                -not $ip.IPAddressToString.StartsWith('169.254.')) {
+                return $ip.IPAddressToString
+            }
+        }
+    }
+    return $null
+}
 
 function Find-StudyFlowJdk {
     $pathJavac = Get-Command javac -ErrorAction SilentlyContinue
@@ -155,6 +177,18 @@ if ($CompileOnly) {
     exit 0
 }
 
+if ($Lan) {
+    $Web = $true
+    $BindAddress = '0.0.0.0'
+    if (-not $PublicUrl) {
+        $lanAddress = Find-StudyFlowLanAddress
+        if (-not $lanAddress) {
+            throw 'No active Wi-Fi or Ethernet address was found. Connect this computer to the same network as the other devices and try again.'
+        }
+        $PublicUrl = "http://${lanAddress}:$Port"
+    }
+}
+
 if (-not $Web) {
     Write-Host 'Launching the StudyFlow desktop application...' -ForegroundColor Green
     & $jdk.Java -cp $classPath com.studyflow.AdaptiveStudyPlanner
@@ -166,6 +200,13 @@ if (-not $Web) {
     if ($DataDirectory) { $env:STUDYFLOW_DATA_DIR = [IO.Path]::GetFullPath($DataDirectory) }
     elseif (-not $env:STUDYFLOW_DATA_DIR) { $env:STUDYFLOW_DATA_DIR = Join-Path $projectRoot 'data' }
     $env:STUDYFLOW_WEB_DIR = Join-Path $projectRoot 'web'
+    if ($Lan) {
+        Write-Host ''
+        Write-Host 'Same-Wi-Fi address for phones and laptops:' -ForegroundColor Yellow
+        Write-Host "  $PublicUrl" -ForegroundColor Cyan
+        Write-Host 'Keep this window open while people use StudyFlow.' -ForegroundColor DarkGray
+        Write-Host ''
+    }
     Write-Host 'Starting StudyFlow. Open the URL printed below in your browser.' -ForegroundColor Green
     & $jdk.Java -cp $classPath com.studyflow.server.StudyFlowServer
 }

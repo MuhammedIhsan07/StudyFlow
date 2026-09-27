@@ -74,6 +74,14 @@ Start the optional browser/server version:
 .\run.ps1 -Web
 ```
 
+To use the responsive website on phones and laptops connected to the same Wi-Fi, double-click `start-lan.bat` or run:
+
+```powershell
+.\run.ps1 -Lan
+```
+
+The launcher detects the computer's Wi-Fi address and prints the exact link to open on every device. Keep the server window open while StudyFlow is in use.
+
 For a trusted local network demonstration, bind to all interfaces and set the URL that users will open:
 
 ```powershell

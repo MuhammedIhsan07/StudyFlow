@@ -73,7 +73,8 @@ public final class StudyFlowServer {
                 ApiException.require(Set.of("GET", "POST", "PUT", "DELETE").contains(method), 405, "Method not allowed.");
                 String requestOrigin = exchange.getRequestHeaders().getFirst("Origin");
                 if (!method.equals("GET")) {
-                    ApiException.require(requestOrigin == null || requestOrigin.equals(origin), 403, "This request came from another site. Open StudyFlow at " + origin + ".");
+                    ApiException.require(requestOrigin == null || isSameSiteOrigin(exchange, requestOrigin),
+                            403, "This request came from another site. Open StudyFlow directly and try again.");
                     ApiException.require(!"cross-site".equals(exchange.getRequestHeaders().getFirst("Sec-Fetch-Site")), 403, "Cross-site requests are not allowed.");
                 }
                 JsonObject body = method.equals("GET") ? new JsonObject() : readBody(exchange);
@@ -132,6 +133,21 @@ public final class StudyFlowServer {
             if (pair.length == 2 && pair[0].equals("studyflow_session") && pair[1].matches("[A-Za-z0-9_-]{43}")) return pair[1];
         }
         return null;
+    }
+    private boolean isSameSiteOrigin(HttpExchange exchange, String requestOrigin) {
+        if (requestOrigin.equals(origin)) return true;
+        try {
+            URI candidate = URI.create(requestOrigin);
+            String host = exchange.getRequestHeaders().getFirst("Host");
+            return Set.of("http", "https").contains(candidate.getScheme())
+                    && candidate.getUserInfo() == null
+                    && candidate.getRawQuery() == null
+                    && candidate.getRawFragment() == null
+                    && (candidate.getPath() == null || candidate.getPath().isEmpty())
+                    && host != null && candidate.getRawAuthority().equalsIgnoreCase(host);
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
     }
     private synchronized void limit(String key, int maximum) {
         long now = System.currentTimeMillis(), interval = 900_000;
