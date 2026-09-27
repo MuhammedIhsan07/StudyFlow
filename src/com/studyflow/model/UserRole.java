@@ -3,7 +3,8 @@ package com.studyflow.model;
 /** Defines which application workspace an authenticated user may access. */
 public enum UserRole {
     STUDENT("Student"),
-    MENTOR_ADMIN("Mentor / Admin");
+    MENTOR("Mentor"),
+    ADMIN("Administrator");
 
     private final String label;
 

@@ -2,8 +2,8 @@ package com.studyflow.ui;
 
 import com.studyflow.model.AuthenticatedUser;
 import com.studyflow.model.UserRole;
+import com.studyflow.service.AccountManagementService;
 import com.studyflow.service.AdaptivePlannerService;
-import com.studyflow.service.AuthenticationService;
 import com.studyflow.service.MentorDashboardService;
 import com.studyflow.ui.UiComponents.RoundedButton;
 import com.studyflow.ui.UiComponents.RoundedPanel;
@@ -40,7 +40,7 @@ import java.util.Optional;
 
 /** Role-based sign-in window for students and Mentor/Admin users. */
 public final class LoginFrame extends JFrame {
-    private final AuthenticationService authenticationService = new AuthenticationService();
+    private final AccountManagementService accountService = new AccountManagementService();
     private UserRole selectedRole = UserRole.STUDENT;
     private final RoundedButton studentRole = roleButton("Student");
     private final RoundedButton mentorRole = roleButton("Mentor / Admin");
@@ -163,7 +163,7 @@ public final class LoginFrame extends JFrame {
         roleSelector.setLayout(new GridLayout(1, 2, 8, 0));
         roleSelector.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
         studentRole.addActionListener(event -> updateSelectedRole(UserRole.STUDENT));
-        mentorRole.addActionListener(event -> updateSelectedRole(UserRole.MENTOR_ADMIN));
+        mentorRole.addActionListener(event -> updateSelectedRole(UserRole.MENTOR));
         roleSelector.add(studentRole);
         roleSelector.add(mentorRole);
         card.add(roleSelector);
@@ -207,7 +207,7 @@ public final class LoginFrame extends JFrame {
 
         RoundedPanel demo = new RoundedPanel(Theme.PRIMARY_SOFT, 14);
         demo.setBorder(Theme.padding(11, 13, 11, 13));
-        demo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 58));
+        demo.setMaximumSize(new Dimension(Integer.MAX_VALUE, 72));
         demo.setLayout(new BoxLayout(demo, BoxLayout.Y_AXIS));
         demo.add(text("DEMO CREDENTIALS", 8, Theme.MUTED, Font.BOLD));
         demo.add(Box.createVerticalStrut(3));
@@ -232,31 +232,42 @@ public final class LoginFrame extends JFrame {
         roleDescription.setText(student
                 ? "Plan tasks and track personal progress."
                 : "Review progress and support students.");
-        emailField.setText(student ? AuthenticationService.STUDENT_EMAIL : AuthenticationService.MENTOR_EMAIL);
+        emailField.setText(student ? "student@studyflow.com" : "mentor@studyflow.com");
         passwordField.setText(student ? "student123" : "mentor123");
         demoCredentials.setText(student
                 ? "student@studyflow.com  /  student123"
-                : "mentor@studyflow.com  /  mentor123");
+                : "<html>Mentor: mentor@studyflow.com / mentor123<br>Admin: admin@studyflow.com / admin123</html>");
         errorMessage.setText(" ");
     }
 
     private void signIn() {
         char[] password = passwordField.getPassword();
         try {
-            Optional<AuthenticatedUser> authenticated = authenticationService.authenticate(
-                    emailField.getText(), password, selectedRole);
+            Optional<AuthenticatedUser> authenticated = accountService.authenticate(
+                    emailField.getText(), password);
             if (!authenticated.isPresent()) {
-                errorMessage.setText("Incorrect email or password for the selected role.");
+                errorMessage.setText("Incorrect email or password.");
                 passwordField.requestFocusInWindow();
                 return;
             }
 
-            AdaptivePlannerService planner = new AdaptivePlannerService();
+            AuthenticatedUser user = authenticated.get();
+            boolean correctWorkspace = selectedRole == UserRole.STUDENT
+                    ? user.getRole() == UserRole.STUDENT
+                    : user.getRole() == UserRole.MENTOR || user.getRole() == UserRole.ADMIN;
+            if (!correctWorkspace) {
+                errorMessage.setText("Select the workspace assigned to this account.");
+                return;
+            }
+
             Runnable logout = () -> new LoginFrame().setVisible(true);
-            if (authenticated.get().getRole() == UserRole.STUDENT) {
+            if (user.getRole() == UserRole.STUDENT) {
+                AdaptivePlannerService planner = new AdaptivePlannerService(user.getId(), user.getName(),
+                        user.getEmail(), user.getProgram(), "student@studyflow.com".equals(user.getEmail()));
                 new MainFrame(planner, logout).setVisible(true);
             } else {
-                new MentorFrame(new MentorDashboardService(planner), authenticated.get(), logout).setVisible(true);
+                new MentorFrame(new MentorDashboardService(accountService), accountService,
+                        user, logout).setVisible(true);
             }
             dispose();
         } finally {

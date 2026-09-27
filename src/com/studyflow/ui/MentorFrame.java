@@ -4,6 +4,9 @@ import com.studyflow.model.AuthenticatedUser;
 import com.studyflow.model.StudentProgressSummary;
 import com.studyflow.model.StudentProgressSummary.ProgressStatus;
 import com.studyflow.model.StudentProgressSummary.SubjectProgress;
+import com.studyflow.model.UserAccount;
+import com.studyflow.model.UserRole;
+import com.studyflow.service.AccountManagementService;
 import com.studyflow.service.MentorDashboardService;
 import com.studyflow.ui.UiComponents.Avatar;
 import com.studyflow.ui.UiComponents.RoundedButton;
@@ -16,9 +19,11 @@ import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JPasswordField;
 import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JSeparator;
+import javax.swing.JTextField;
 import javax.swing.ScrollPaneConstants;
 import javax.swing.SwingConstants;
 import javax.swing.WindowConstants;
@@ -36,6 +41,7 @@ import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.RenderingHints;
 import java.awt.geom.Path2D;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,21 +49,21 @@ import java.util.Map;
 /** Separate progress-monitoring workspace for mentors and administrators. */
 public final class MentorFrame extends JFrame {
     private final MentorDashboardService mentorService;
+    private final AccountManagementService accountService;
     private final AuthenticatedUser mentor;
     private final Runnable logoutAction;
     private final JPanel pageHost = new JPanel(new BorderLayout());
     private final Map<String, RoundedButton> studentButtons = new LinkedHashMap<>();
     private StudentProgressSummary selectedStudent;
 
-    public MentorFrame(MentorDashboardService mentorService, AuthenticatedUser mentor, Runnable logoutAction) {
+    public MentorFrame(MentorDashboardService mentorService, AccountManagementService accountService,
+                       AuthenticatedUser mentor, Runnable logoutAction) {
         this.mentorService = mentorService;
+        this.accountService = accountService;
         this.mentor = mentor;
         this.logoutAction = logoutAction;
-        List<StudentProgressSummary> students = mentorService.getStudents();
-        selectedStudent = students.isEmpty() ? null : students.get(0);
         configureFrame();
-        buildInterface(students);
-        renderDashboard();
+        refreshAll();
     }
 
     private void configureFrame() {
@@ -80,6 +86,19 @@ public final class MentorFrame extends JFrame {
         workspace.add(pageHost, BorderLayout.CENTER);
         root.add(workspace, BorderLayout.CENTER);
         setContentPane(root);
+    }
+
+    private void refreshAll() {
+        String selectedId = selectedStudent == null ? null : selectedStudent.getId();
+        List<StudentProgressSummary> students = mentorService.getStudents();
+        selectedStudent = students.stream()
+                .filter(student -> student.getId().equals(selectedId))
+                .findFirst().orElse(students.isEmpty() ? null : students.get(0));
+        studentButtons.clear();
+        buildInterface(students);
+        renderDashboard();
+        revalidate();
+        repaint();
     }
 
     private JPanel createSidebar(List<StudentProgressSummary> students) {
@@ -152,7 +171,7 @@ public final class MentorFrame extends JFrame {
         JPanel accountText = transparent();
         accountText.setLayout(new BoxLayout(accountText, BoxLayout.Y_AXIS));
         accountText.add(label(mentor.getName(), 11, Theme.TEXT, Font.BOLD));
-        accountText.add(label("Mentor / Administrator", 9, Theme.MUTED, Font.PLAIN));
+        accountText.add(label(mentor.getRole().toString(), 9, Theme.MUTED, Font.PLAIN));
         account.add(accountText, BorderLayout.CENTER);
         sidebar.add(account);
         sidebar.add(Box.createVerticalStrut(10));
@@ -177,7 +196,8 @@ public final class MentorFrame extends JFrame {
                 Theme.padding(15, 28, 14, 28)));
         JPanel title = transparent();
         title.setLayout(new BoxLayout(title, BoxLayout.Y_AXIS));
-        title.add(label("Mentor dashboard", 24, Theme.TEXT, Font.BOLD));
+        title.add(label(mentor.getRole() == UserRole.ADMIN ? "Administration dashboard" : "Mentor dashboard",
+                24, Theme.TEXT, Font.BOLD));
         title.add(label("Monitor progress and support every learner", 12, Theme.MUTED, Font.PLAIN));
         header.add(title, BorderLayout.WEST);
 
@@ -185,7 +205,7 @@ public final class MentorFrame extends JFrame {
         right.setLayout(new FlowLayout(FlowLayout.RIGHT, 10, 5));
         RoundedPanel roleBadge = new RoundedPanel(Theme.SUCCESS_SOFT, 12);
         roleBadge.setBorder(Theme.padding(9, 13, 9, 13));
-        roleBadge.add(label("Verified Mentor/Admin", 10, Theme.SUCCESS, Font.BOLD));
+        roleBadge.add(label("Verified " + mentor.getRole(), 10, Theme.SUCCESS, Font.BOLD));
         right.add(roleBadge);
         right.add(new Avatar(initials(mentor.getName()), 38, Theme.PRIMARY_DARK));
         header.add(right, BorderLayout.EAST);
@@ -218,10 +238,23 @@ public final class MentorFrame extends JFrame {
         introText.add(label("Student progress center", 21, Theme.TEXT, Font.BOLD));
         introText.add(label("Select a student to review their latest learning signals.", 12, Theme.MUTED, Font.PLAIN));
         intro.add(introText, BorderLayout.WEST);
+        JPanel actions = transparent();
+        actions.setLayout(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        RoundedButton addStudent = new RoundedButton("+ Add student", Theme.SUCCESS,
+                new Color(61, 104, 72), Color.WHITE, 12);
+        addStudent.addActionListener(event -> showAddStudentDialog());
+        actions.add(addStudent);
+        if (mentor.getRole() == UserRole.ADMIN) {
+            RoundedButton addMentor = new RoundedButton("+ Add mentor", Theme.PRIMARY_SOFT,
+                    new Color(221, 206, 187), Theme.PRIMARY_DARK, 12);
+            addMentor.addActionListener(event -> showAddMentorDialog());
+            actions.add(addMentor);
+        }
         RoundedButton export = new RoundedButton("Progress report", Theme.PRIMARY,
                 Theme.PRIMARY_DARK, Color.WHITE, 12);
         export.addActionListener(event -> showReport());
-        intro.add(export, BorderLayout.EAST);
+        actions.add(export);
+        intro.add(actions, BorderLayout.EAST);
         page.add(intro);
         page.add(Box.createVerticalStrut(20));
         page.add(metricRow());
@@ -385,6 +418,75 @@ public final class MentorFrame extends JFrame {
         RoundedPanel card = new RoundedPanel(Theme.SURFACE, Theme.BORDER, 18);
         card.setBorder(Theme.padding(21, 22, 21, 22));
         return card;
+    }
+
+    private void showAddStudentDialog() {
+        JTextField name = new JTextField();
+        JTextField email = new JTextField();
+        JTextField program = new JTextField("BSc Computer Science");
+        JPasswordField password = new JPasswordField();
+        JPanel form = accountForm(name, email, program, password, true);
+        int result = JOptionPane.showConfirmDialog(this, form, "Add student account",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        char[] temporaryPassword = password.getPassword();
+        try {
+            if (result != JOptionPane.OK_OPTION) return;
+            UserAccount created = accountService.createStudent(mentor, name.getText(), email.getText(),
+                    program.getText(), temporaryPassword);
+            refreshAll();
+            JOptionPane.showMessageDialog(this,
+                    "Student account created for " + created.getName() + ".\n\nLogin email: "
+                            + created.getEmail() + "\nShare the temporary password securely.",
+                    "Student added", JOptionPane.INFORMATION_MESSAGE);
+        } catch (IllegalArgumentException | SecurityException exception) {
+            JOptionPane.showMessageDialog(this, exception.getMessage(), "Could not add student",
+                    JOptionPane.ERROR_MESSAGE);
+        } finally {
+            Arrays.fill(temporaryPassword, '\0');
+        }
+    }
+
+    private void showAddMentorDialog() {
+        JTextField name = new JTextField();
+        JTextField email = new JTextField();
+        JTextField unusedProgram = new JTextField();
+        JPasswordField password = new JPasswordField();
+        JPanel form = accountForm(name, email, unusedProgram, password, false);
+        int result = JOptionPane.showConfirmDialog(this, form, "Add mentor account",
+                JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+        char[] temporaryPassword = password.getPassword();
+        try {
+            if (result != JOptionPane.OK_OPTION) return;
+            UserAccount created = accountService.createMentor(mentor, name.getText(), email.getText(),
+                    temporaryPassword);
+            JOptionPane.showMessageDialog(this,
+                    "Mentor account created for " + created.getName() + ".\n\nLogin email: "
+                            + created.getEmail() + "\nShare the temporary password securely.",
+                    "Mentor added", JOptionPane.INFORMATION_MESSAGE);
+        } catch (IllegalArgumentException | SecurityException exception) {
+            JOptionPane.showMessageDialog(this, exception.getMessage(), "Could not add mentor",
+                    JOptionPane.ERROR_MESSAGE);
+        } finally {
+            Arrays.fill(temporaryPassword, '\0');
+        }
+    }
+
+    private static JPanel accountForm(JTextField name, JTextField email, JTextField program,
+                                      JPasswordField password, boolean includeProgram) {
+        JPanel form = new JPanel(new GridLayout(0, 1, 4, 5));
+        form.setBorder(Theme.padding(8, 8, 8, 8));
+        form.add(label("Full name", 10, Theme.MUTED, Font.BOLD));
+        form.add(name);
+        form.add(label("Email address", 10, Theme.MUTED, Font.BOLD));
+        form.add(email);
+        if (includeProgram) {
+            form.add(label("Program / course", 10, Theme.MUTED, Font.BOLD));
+            form.add(program);
+        }
+        form.add(label("Temporary password (minimum 8 characters)", 10, Theme.MUTED, Font.BOLD));
+        form.add(password);
+        form.setPreferredSize(new Dimension(390, includeProgram ? 250 : 190));
+        return form;
     }
 
     private void showReport() {

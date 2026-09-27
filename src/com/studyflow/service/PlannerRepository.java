@@ -23,6 +23,14 @@ public final class PlannerRepository {
         dataFile = Paths.get(System.getProperty("user.home"), ".studyflow", "planner-data.bin");
     }
 
+    /** Creates a private planner store for one student account. */
+    public PlannerRepository(String userId) {
+        String safeUserId = userId == null ? "unknown"
+                : userId.replaceAll("[^A-Za-z0-9_-]", "_");
+        dataFile = Paths.get(System.getProperty("user.home"), ".studyflow", "planners",
+                "planner-" + safeUserId + ".bin");
+    }
+
     public Optional<PlannerData> load() {
         if (!Files.exists(dataFile)) return Optional.empty();
         try (ObjectInputStream input = new ObjectInputStream(Files.newInputStream(dataFile))) {

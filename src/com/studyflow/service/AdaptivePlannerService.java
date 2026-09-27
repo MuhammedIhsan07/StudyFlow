@@ -32,13 +32,29 @@ public final class AdaptivePlannerService {
 
     public AdaptivePlannerService() {
         repository = new PlannerRepository();
+        loadOrCreate("Muhammed Ihsan", "ihsan@student.edu", "Btech Computer Science", true);
+    }
+
+    /**
+     * Opens the planner that belongs to one authenticated student. New accounts
+     * start clean; the bundled demonstration account receives example content.
+     */
+    public AdaptivePlannerService(String userId, String name, String email,
+                                  String program, boolean seedExamples) {
+        repository = new PlannerRepository(userId);
+        loadOrCreate(name, email, program, seedExamples);
+    }
+
+    private void loadOrCreate(String name, String email, String program, boolean seedExamples) {
         Optional<PlannerRepository.PlannerData> stored = repository.load();
         if (stored.isPresent()) {
             profile = stored.get().getProfile();
             subjects.addAll(stored.get().getSubjects());
             tasks.addAll(stored.get().getTasks());
         } else {
-            seedDemoData();
+            profile = new StudentProfile(name, email, program, 180, "Evening (5 PM - 9 PM)");
+            if (seedExamples) seedExampleAcademicData();
+            save();
         }
     }
 
@@ -194,10 +210,7 @@ public final class AdaptivePlannerService {
         repository.save(new PlannerRepository.PlannerData(profile, subjects, tasks));
     }
 
-    private void seedDemoData() {
-        profile = new StudentProfile("Muhammed Ihsan", "ihsan@student.edu",
-                "Btech Computer Science", 180, "Evening (5 PM - 9 PM)");
-
+    private void seedExampleAcademicData() {
         Subject oop = new Subject("Object-Oriented Programming", "CS201", "#7A5C43", 300);
         Subject dsa = new Subject("Data Structures", "CS204", "#B8875C", 240);
         Subject math = new Subject("Discrete Mathematics", "MTH202", "#5F846C", 240);

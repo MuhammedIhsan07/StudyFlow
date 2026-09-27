@@ -1,4 +1,14 @@
 .tools/
+.vscode/
 out/
+target/
 *.class
 *.log
+data/
+.test-data/
+.deploy-test-data/
+test-results/
+.env
+*.mv.db
+*.trace.db
+*.lock.db

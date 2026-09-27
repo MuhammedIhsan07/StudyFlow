@@ -1,5 +1,11 @@
 param(
-    [switch]$CompileOnly
+    [switch]$CompileOnly,
+    [switch]$Desktop,
+    [switch]$Web,
+    [ValidateRange(1, 65535)][int]$Port = 8080,
+    [string]$BindAddress = '127.0.0.1',
+    [string]$PublicUrl = '',
+    [string]$DataDirectory = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -86,9 +92,6 @@ function Install-PortableStudyFlowJdk {
             throw 'The downloaded JDK checksum did not match the official checksum.'
         }
 
-        if (Test-Path -LiteralPath $portableJdkDirectory) {
-            Remove-Item -LiteralPath $portableJdkDirectory -Recurse -Force
-        }
         New-Item -ItemType Directory -Force -Path $portableJdkDirectory | Out-Null
         Write-Host 'Extracting Java...' -ForegroundColor DarkGray
         Expand-Archive -LiteralPath $archivePath -DestinationPath $portableJdkDirectory -Force
@@ -119,13 +122,29 @@ if (-not $jdk) {
 $sourceFiles = Get-ChildItem -LiteralPath (Join-Path $projectRoot 'src') -Recurse -Filter '*.java' |
     Select-Object -ExpandProperty FullName
 
+$libraryDirectory = Join-Path $toolsDirectory 'lib'
+New-Item -ItemType Directory -Force -Path $libraryDirectory | Out-Null
+$dependencies = Get-Content -LiteralPath (Join-Path $projectRoot 'dependencies.json') -Raw | ConvertFrom-Json
+foreach ($dependency in $dependencies) {
+    $libraryPath = Join-Path $libraryDirectory $dependency.name
+    if (-not (Test-Path -LiteralPath $libraryPath)) {
+        Write-Host "Downloading $($dependency.name)..." -ForegroundColor DarkGray
+        Invoke-WebRequest -UseBasicParsing -Uri $dependency.url -OutFile $libraryPath
+    }
+    $libraryHash = (Get-FileHash -LiteralPath $libraryPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($libraryHash -ne $dependency.sha256) {
+        throw "Checksum mismatch for $($dependency.name). Remove that file from .tools/lib and run again."
+    }
+}
+$classPath = "$outputDirectory;$libraryDirectory/*"
+
 if (-not $sourceFiles) {
     throw 'No Java source files were found in the src folder.'
 }
 
 New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 Write-Host 'Compiling StudyFlow...' -ForegroundColor DarkGray
-& $jdk.Javac -encoding UTF-8 -d $outputDirectory $sourceFiles
+& $jdk.Javac --release 21 -encoding UTF-8 -cp "$libraryDirectory/*" -d $outputDirectory $sourceFiles
 
 if ($LASTEXITCODE -ne 0) {
     throw 'Compilation failed. Review the Java compiler messages above.'
@@ -136,5 +155,18 @@ if ($CompileOnly) {
     exit 0
 }
 
-Write-Host 'Launching StudyFlow...' -ForegroundColor Green
-& $jdk.Java -cp $outputDirectory com.studyflow.AdaptiveStudyPlanner
+if (-not $Web) {
+    Write-Host 'Launching the StudyFlow desktop application...' -ForegroundColor Green
+    & $jdk.Java -cp $classPath com.studyflow.AdaptiveStudyPlanner
+} else {
+    $env:STUDYFLOW_PORT = [string]$Port
+    $env:STUDYFLOW_HOST = $BindAddress
+    if ($PublicUrl) { $env:STUDYFLOW_ORIGIN = $PublicUrl }
+    elseif (-not $env:STUDYFLOW_ORIGIN) { $env:STUDYFLOW_ORIGIN = "http://localhost:$Port" }
+    if ($DataDirectory) { $env:STUDYFLOW_DATA_DIR = [IO.Path]::GetFullPath($DataDirectory) }
+    elseif (-not $env:STUDYFLOW_DATA_DIR) { $env:STUDYFLOW_DATA_DIR = Join-Path $projectRoot 'data' }
+    $env:STUDYFLOW_WEB_DIR = Join-Path $projectRoot 'web'
+    Write-Host 'Starting StudyFlow. Open the URL printed below in your browser.' -ForegroundColor Green
+    & $jdk.Java -cp $classPath com.studyflow.server.StudyFlowServer
+}
+if ($LASTEXITCODE -ne 0) { throw 'StudyFlow stopped with an error. Review the message above.' }

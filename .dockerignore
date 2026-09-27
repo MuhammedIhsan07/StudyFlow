@@ -1,0 +1,13 @@
+.git
+.github
+.idea
+.vscode
+.tools
+data
+out
+target
+test-results
+*.class
+*.log
+*.mv.db
+*.trace.db
